@@ -1,0 +1,32 @@
+{
+    "device_id": "PICO-MX-1",
+    "secret_key": "mi_clave_secreta_2026",
+    "wifi_ssid": "R2D2MAN9_2.4G",
+    "wifi_password": "1234Pasword",
+    "mqtt_broker": "192.168.100.155",
+    "mqtt_port": 1883,
+    "interval_seconds": 300,
+    "country": "Mexico",
+    "state": "Estado de Mexico",
+    "municipality": "Ecatepec",
+    "latitude": 19.6012,
+    "longitude": -99.0598,
+    "sensors": [
+        {
+            "id": "temp_1",
+            "type": "temperature",
+            "unit": "C",
+            "adc": 0,
+            "gpio": 26,
+            "label": "Temperatura"
+        },
+        {
+            "id": "hum_1",
+            "type": "humidity_dht11",
+            "unit": "%",
+            "adc": -1,
+            "gpio": 16,
+            "label": "Humedad"
+        }
+    ]
+}
