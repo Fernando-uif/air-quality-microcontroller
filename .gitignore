@@ -1,0 +1,21 @@
+# Configuracion local con secretos (WiFi, secret_key, broker).
+# Cada persona crea su propio config.json a partir de config.example.json
+config.json
+
+# Archivos de estado generados en la placa (no versionar)
+sequence.dat
+registered.flag
+buffer.dat
+*.bak
+
+# Python / entornos locales
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store

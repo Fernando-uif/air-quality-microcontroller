@@ -55,6 +55,26 @@ def subscribe_commands(device_id):
         return False
 
 
+def subscribe_register_ack(device_id):
+    """
+    Se subscribe al topic de ACK de registro (hora del servidor para calibrar).
+    Topic: devices/{device_id}/register/ack
+    """
+
+    if not _client:
+        return False
+
+    topic = "devices/{}/register/ack".format(device_id)
+
+    try:
+        _client.subscribe(topic.encode())
+        print("MQTT subscrito a: {}".format(topic))
+        return True
+    except Exception as e:
+        print("ERROR MQTT subscribe ack: {}".format(e))
+        return False
+
+
 def publish_telemetry(device_id, payload_json):
     """
     Publica medición en el topic de telemetría.

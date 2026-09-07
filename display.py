@@ -9,8 +9,8 @@ Estados de pantalla:
     5. Modo reposo (pantalla atenuada con info mínima)
 
 Conexión I2C:
-    SDA → GPIO4
-    SCL → GPIO5
+    SDA → GPIO16
+    SCL → GPIO17
     VCC → 3.3V
     GND → GND
 """
@@ -20,8 +20,8 @@ from sh1106 import SH1106_I2C
 from time import sleep_ms, ticks_ms, ticks_diff
 
 
-# I2C en GPIO4 (SDA) y GPIO5 (SCL)
-_i2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=400000)
+# I2C en GPIO16 (SDA) y GPIO17 (SCL)
+_i2c = I2C(0, sda=Pin(16), scl=Pin(17), freq=400000)
 _oled = None
 _sleep_mode = False
 _last_activity = 0
@@ -281,12 +281,17 @@ def show_buffer_flush(count, sent):
 # 4. PANTALLA DE MEDICIÓN (datos actuales)
 # ============================================================
 
-def show_measurement(device_id, readings, sensors_config, wifi_ok, mqtt_ok, buffer_count):
+def show_measurement(device_id, readings, sensors_config, wifi_ok, mqtt_ok, buffer_count,
+                     synced_ts=None):
     """
     Pantalla principal — siempre visible.
     Header: HORA (izq)          RED barras (der)
     Body: Dinámico según sensores del config
     Footer: ID corto (centrado)
+
+    synced_ts: timestamp Unix confiable (calibrado con la hora del servidor) o None.
+      - Si None (aún no sincronizado): la hora PARPADEA (feedback de "sincronizando").
+      - Si tiene valor: muestra la hora del servidor de forma fija (deja de parpadear).
     """
     if not _oled:
         return
@@ -294,20 +299,28 @@ def show_measurement(device_id, readings, sensors_config, wifi_ok, mqtt_ok, buff
     _wake()
     _oled.fill(0)
 
-    # -- HEADER --
+    # -- HEADER: HORA --
+    # Solo se muestra la hora cuando está ligada a la del servidor (synced_ts).
+    # Antes de sincronizar NO se muestra hora (queda en blanco), no parpadea.
     from time import localtime
-    t = localtime()
-    hour = t[3]
-    minute = t[4]
-    ampm = "AM" if hour < 12 else "PM"
-    hour12 = hour % 12
-    if hour12 == 0:
-        hour12 = 12
-    time_str = "{}:{:02d}{}".format(hour12, minute, ampm)
-    _oled.text(time_str, 0, 2)
+    if synced_ts is not None:
+        # Hora local de México (UTC-6). Solo visual; los datos/firma van en UTC.
+        local_ts = int(synced_ts) - 6 * 3600
+        t = localtime(local_ts)
+        hour = t[3]
+        minute = t[4]
+        ampm = "AM" if hour < 12 else "PM"
+        hour12 = hour % 12
+        if hour12 == 0:
+            hour12 = 12
+        time_str = "{}:{:02d} {}".format(hour12, minute, ampm)
+        _oled.text(time_str, 0, 2)
+    else:
+        # Sin hora del servidor todavía: indicador discreto (no muestra hora)
+        _oled.text("sync..", 0, 2)
 
-    # RED + barras animadas (pegado a la derecha)
-    _oled.text("RED", 88, 2)
+    # RED + barras animadas (con espacio entre el texto y las barras)
+    _oled.text("RED", 80, 2)
     frame = (ticks_ms() // 300) % 4
 
     if wifi_ok and mqtt_ok:

@@ -1,9 +1,9 @@
 {
     "device_id": "PICO-MX-1",
-    "secret_key": "mi_clave_secreta_2026",
-    "wifi_ssid": "R2D2MAN9_2.4G",
-    "wifi_password": "1234Pasword",
-    "mqtt_broker": "192.168.100.155",
+    "secret_key": "CAMBIA_ESTA_CLAVE_SECRETA",
+    "wifi_ssid": "TU_RED_WIFI",
+    "wifi_password": "TU_PASSWORD_WIFI",
+    "mqtt_broker": "192.168.1.100",
     "mqtt_port": 1883,
     "interval_seconds": 300,
     "country": "Mexico",
@@ -25,7 +25,7 @@
             "type": "humidity_dht11",
             "unit": "%",
             "adc": -1,
-            "gpio": 16,
+            "gpio": 21,
             "label": "Humedad"
         }
     ]

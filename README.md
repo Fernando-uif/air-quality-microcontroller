@@ -29,6 +29,47 @@ pico-mqtt/
 └── sh1106.py          ← Driver SH1106
 ```
 
+## Setup del entorno local
+
+El archivo `config.json` contiene secretos (WiFi, `secret_key`, broker) y **no se versiona**.
+El repo incluye una plantilla `config.example.json`. Para configurar tu entorno:
+
+```bash
+# 1. Crea tu config local a partir de la plantilla
+cp config.example.json config.json
+
+# 2. Edita config.json con tus valores reales (WiFi, secret_key, broker MQTT, ubicacion)
+#    config.json esta en .gitignore, no se subira al repo.
+```
+
+## Flasheo de la placa (Raspberry Pi Pico W)
+
+### 1. Instalar MicroPython (una sola vez por placa)
+
+1. Descarga el UF2 desde https://micropython.org/download/RPI_PICO_W/
+2. Manten presionado **BOOTSEL** y conecta la Pico W por USB (aparece como unidad `RPI-RP2`).
+3. Copia el `.uf2` a esa unidad. La placa se reinicia con MicroPython instalado.
+
+### 2. Copiar el firmware a la placa
+
+Con [`mpremote`](https://docs.micropython.org/en/latest/reference/mpremote.html):
+
+```bash
+pip install mpremote
+
+# Copiar todos los modulos + tu config.json
+for f in main.py config.py config.json wifi.py sensor.py crypto.py \
+         mqtt_client.py buffer.py sequence.py display.py sh1106.py; do
+    mpremote connect auto fs cp "$f" ":$f"
+done
+
+# Reiniciar y ver logs
+mpremote connect auto reset
+mpremote connect auto repl
+```
+
+Alternativa gráfica: **Thonny** (intérprete "MicroPython (Raspberry Pi Pico)"), guardando cada archivo en el dispositivo.
+
 ## Configuración
 
 ```json
@@ -94,8 +135,8 @@ pico-mqtt/
 
 | Pin | Pico W |
 |-----|--------|
-| SDA | GPIO4 |
-| SCL | GPIO5 |
+| SDA | GPIO16 |
+| SCL | GPIO17 |
 | VCC | 3.3V |
 | GND | GND |
 

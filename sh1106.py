@@ -3,8 +3,8 @@ sh1106.py - Driver SH1106 para pantalla OLED I2C 1.3" (128x64)
 
 Basado en el driver de MicroPython community.
 Conexión I2C:
-    SDA → GPIO4
-    SCL → GPIO5
+    SDA → GPIO16
+    SCL → GPIO17
     VCC → 3.3V
     GND → GND
 """

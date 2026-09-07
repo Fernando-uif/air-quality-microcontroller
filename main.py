@@ -24,7 +24,7 @@ import mqtt_client
 import buffer
 import sequence
 import display
-import ntptime
+import timesync
 import ujson
 
 
@@ -51,9 +51,6 @@ SENSORS = conf.get("sensors", [])
 # LED integrado
 led = Pin("LED", Pin.OUT)
 
-# NTP epoch offset (no necesario en MicroPython 1.22+)
-EPOCH_OFFSET = 0
-
 # Flag para medición bajo demanda
 _measure_requested = False
 
@@ -63,22 +60,8 @@ _measure_requested = False
 # ============================================================
 
 def get_timestamp():
-    """Obtiene timestamp Unix."""
-    return int(time()) + EPOCH_OFFSET
-
-
-def sync_time():
-    """Sincroniza reloj con NTP. Reintenta 3 veces."""
-    for attempt in range(3):
-        try:
-            ntptime.settime()
-            print("NTP sincronizado (intento {})".format(attempt + 1))
-            return True
-        except Exception as e:
-            print("NTP intento {} fallo: {}".format(attempt + 1, e))
-            sleep(2)
-    print("NTP: sin sincronizar")
-    return False
+    """Timestamp Unix confiable (calibrado por el ACK del servidor), o None."""
+    return timesync.get_timestamp()
 
 
 def led_blink(times, ms):
@@ -114,15 +97,16 @@ def mark_registered():
 
 def do_auto_register():
     """
-    Envía mensaje de registro al backend via MQTT.
-    Solo se ejecuta si el dispositivo no se ha registrado antes.
+    Envía mensaje de registro al backend via MQTT en CADA arranque/reconexión.
+    El backend es idempotente y responde con su hora (ACK) para calibrar el reloj.
+    El backend NO valida timestamp en el registro, así que si aún no hay hora
+    confiable se firma con 0.
     Topic: devices/{device_id}/register
     """
-    if is_registered():
-        print("Ya registrado, omitiendo registro")
-        return True
-
     timestamp = get_timestamp()
+    if timestamp is None:
+        timestamp = 0  # registro no valida timestamp; sirve para recibir el ACK con la hora
+
     # Firma: HMAC(secret_key, device_id:timestamp)
     message = "{}:{}".format(DEVICE_ID, timestamp)
     signature = crypto.hmac_sha256(SECRET_KEY, message)
@@ -143,7 +127,7 @@ def do_auto_register():
     success = mqtt_client.publish(topic, ujson.dumps(payload))
 
     if success:
-        print("Auto-registro enviado: {}".format(topic))
+        print("Auto-registro enviado: {} (esperando ACK con hora)".format(topic))
         mark_registered()
     else:
         print("Error enviando auto-registro")
@@ -192,13 +176,20 @@ def send_measurement(readings, timestamp, seq):
 # ============================================================
 
 def on_command(topic, payload):
-    """Callback cuando llega un comando del backend."""
+    """Callback cuando llega un mensaje del backend (comando o ACK de registro)."""
 
     global _measure_requested
 
     try:
         cmd = ujson.loads(payload)
         action = cmd.get("action", "")
+
+        # ACK de registro con la hora del servidor → calibrar reloj
+        if action == "time_sync":
+            server_time = cmd.get("server_time")
+            print("ACK recibido: time_sync server_time={}".format(server_time))
+            timesync.set_from_server(server_time)
+            return
 
         display.show_mqtt_command(action)
         sleep_ms(800)
@@ -220,6 +211,13 @@ def do_measure_and_send():
 
     readings = sensor.read_all(SENSORS)
     timestamp = get_timestamp()
+
+    # Sin hora confiable (aún no llegó el ACK del servidor): NO publicar.
+    # El timestamp sería inválido y el backend lo rechazaría. Se omite este ciclo.
+    if timestamp is None:
+        print("Sin hora calibrada (esperando ACK) → no se publica esta medición")
+        return False, readings
+
     seq = sequence.next()
 
     print("\n[seq={}] readings={} ts={}".format(seq, len(readings), timestamp))
@@ -262,6 +260,7 @@ def main():
     # ── 2. INICIALIZAR SENSORES ──
     sensor.init(SENSORS)
     sequence.load()
+    timesync.load()  # cargar offset previo si existe (respaldo)
 
     # ── 3. LEER SENSOR Y MOSTRAR INMEDIATAMENTE ──
     readings = sensor.read_all_fast(SENSORS)
@@ -278,8 +277,6 @@ def main():
 
     # ── 4. CONECTAR WiFi ──
     wifi_ok = wifi.connect(WIFI_SSID, WIFI_PASSWORD)
-    if wifi_ok:
-        sync_time()
 
     # ── 5. CONECTAR MQTT ──
     mqtt_ok = False
@@ -288,7 +285,8 @@ def main():
         if mqtt_ok:
             mqtt_client.set_command_callback(on_command)
             mqtt_client.subscribe_commands(DEVICE_ID)
-            # Auto-registro: el backend me registra automáticamente
+            mqtt_client.subscribe_register_ack(DEVICE_ID)  # hora del servidor
+            # Auto-registro: dispara el ACK con la hora para calibrar el reloj
             do_auto_register()
 
     # LED inicio
@@ -333,7 +331,8 @@ def main():
                 sensors_config=SENSORS,
                 wifi_ok=wifi.is_connected(),
                 mqtt_ok=mqtt_client.is_connected(),
-                buffer_count=buffer.count()
+                buffer_count=buffer.count(),
+                synced_ts=timesync.get_timestamp()  # None → hora parpadea; con valor → fija (hora servidor)
             )
 
             # Reconectar (solo si alguna vez conectó)
@@ -344,6 +343,12 @@ def main():
                     mqtt_ok = mqtt_client.reconnect(DEVICE_ID, MQTT_BROKER, MQTT_PORT)
                     if mqtt_ok:
                         mqtt_client.subscribe_commands(DEVICE_ID)
+                        mqtt_client.subscribe_register_ack(DEVICE_ID)
+                        # Re-registrar para recibir la hora del servidor y recalibrar
+                        do_auto_register()
+                # Si estamos conectados pero aún sin hora, re-registrar para pedir el ACK
+                elif mqtt_client.is_connected() and not timesync.is_valid():
+                    do_auto_register()
 
         except Exception as e:
             print("Error: {}".format(e))
