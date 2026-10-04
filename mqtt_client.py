@@ -81,6 +81,8 @@ def publish_telemetry(device_id, payload_json):
     Topic: devices/{device_id}/telemetry
     """
 
+    global _client
+
     if not _client:
         return False
 
@@ -91,6 +93,7 @@ def publish_telemetry(device_id, payload_json):
         return True
     except Exception as e:
         print("ERROR MQTT publish: {}".format(e))
+        _client = None  # socket roto: forzar reconexión en el loop principal
         return False
 
 
@@ -98,6 +101,8 @@ def publish(topic, payload_json):
     """
     Publica en un topic arbitrario.
     """
+
+    global _client
 
     if not _client:
         return False
@@ -107,6 +112,7 @@ def publish(topic, payload_json):
         return True
     except Exception as e:
         print("ERROR MQTT publish {}: {}".format(topic, e))
+        _client = None  # socket roto: forzar reconexión en el loop principal
         return False
 
 
@@ -126,6 +132,8 @@ def check_messages():
     Debe llamarse frecuentemente en el loop.
     """
 
+    global _client
+
     if not _client:
         return
 
@@ -133,6 +141,7 @@ def check_messages():
         _client.check_msg()
     except Exception as e:
         print("ERROR MQTT check: {}".format(e))
+        _client = None  # socket roto: forzar reconexión en el loop principal
 
 
 def is_connected():

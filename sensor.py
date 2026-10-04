@@ -2,9 +2,10 @@
 sensor.py - Lectura dinámica de sensores
 
 Tipos soportados:
-    - temperature (LM35, ADC):  10mV/°C → voltaje * 100 = °C
-    - analog (genérico, ADC):   Retorna voltaje crudo 0-3.3V
-    - humidity_dht11 (digital): DHT11 en GPIO, protocolo 1-wire
+    - temperature (LM35, ADC):   10mV/°C → voltaje * 100 = °C
+    - analog (genérico, ADC):    Retorna voltaje crudo 0-3.3V
+    - humidity_dht11 (digital):  Humedad del DHT11 en GPIO, protocolo 1-wire
+    - temperature_dht11 (digital): Temperatura del mismo DHT11 (misma lectura)
 
 Lee desde la lista de sensores definida en config.json.
 """
@@ -31,7 +32,10 @@ FAULT_RAW = 0
 
 # Cache de objetos por sensor id
 _adcs = {}
+# DHT11 se indexa por GPIO (no por sensor id): temperature_dht11 y humidity_dht11
+# pueden apuntar al mismo chip físico y deben compartir una sola instancia.
 _dht_sensors = {}
+_DHT_TYPES = ("humidity_dht11", "temperature_dht11")
 
 
 def init(sensors_config):
@@ -47,13 +51,15 @@ def init(sensors_config):
         gpio = s["gpio"]
         sensor_type = s["type"]
 
-        if sensor_type == "humidity_dht11":
+        if sensor_type in _DHT_TYPES:
+            if gpio in _dht_sensors:
+                continue  # ya inicializado por otro sensor_id en el mismo GPIO
             try:
-                _dht_sensors[sid] = dht.DHT11(Pin(gpio))
+                _dht_sensors[gpio] = dht.DHT11(Pin(gpio))
                 print("Sensor '{}' DHT11 en GPIO{}".format(sid, gpio))
                 # Health-check: una lectura de prueba (el DHT11 puede fallar la primera)
                 try:
-                    _dht_sensors[sid].measure()
+                    _dht_sensors[gpio].measure()
                     print("Sensor '{}' DHT11 OK".format(sid))
                 except Exception as e:
                     print("Sensor '{}' DHT11 no responde al iniciar: {}".format(sid, e))
@@ -106,10 +112,9 @@ def read_all(sensors_config):
         sensor_type = s["type"]
 
         try:
-            if sensor_type == "humidity_dht11":
-                value = _read_dht11(sid)
-                if value is None or value == 0:
-                    # DHT11 en fallo o lectura 0 → señal de fallo
+            if sensor_type in _DHT_TYPES:
+                value = _read_dht_field(s["gpio"], sensor_type)
+                if value is None:
                     readings.append({"sensor_id": sid, "value": FAULT_VALUE, "raw_value": FAULT_RAW})
                 else:
                     readings.append({"sensor_id": sid, "value": value, "raw_value": int(value * 10)})
@@ -191,8 +196,8 @@ def read_all_fast(sensors_config):
         sensor_type = s["type"]
 
         try:
-            if sensor_type == "humidity_dht11":
-                value = _read_dht11(sid)
+            if sensor_type in _DHT_TYPES:
+                value = _read_dht_field(s["gpio"], sensor_type)
                 if value is None:
                     readings.append({"sensor_id": sid, "value": FAULT_VALUE, "raw_value": FAULT_RAW})
                 else:
@@ -216,36 +221,44 @@ def read_all_fast(sensors_config):
 # ============================================================
 # DHT11
 # ============================================================
+# Un DHT11 físico entrega temperatura y humedad en la misma lectura.
+# Se cachea por GPIO para no violar el mínimo de 2s entre lecturas del sensor
+# y para que temperature_dht11 y humidity_dht11 compartan una sola medición.
 
-_last_dht_humidity = 0.0
-_last_dht_read = 0
+_dht_cache = {}  # gpio -> {"t": float, "h": float, "ts": ticks_ms}
 
 
-def _read_dht11(sid):
+def _read_dht_combined(gpio):
     """
-    Lee DHT11. Solo permite una lectura cada 2 segundos (limitación del sensor).
-    Retorna humedad en %, o None si el sensor está en fallo/no responde.
+    Mide el DHT11 en `gpio` (o reutiliza la lectura de los últimos 2s).
+    Retorna {"t": temperatura, "h": humedad} o None si el sensor falló.
     """
-    global _last_dht_humidity, _last_dht_read
     from time import ticks_ms, ticks_diff
 
-    # DHT11 solo permite lectura cada 2s: devolver el último válido si aún no toca releer
     now = ticks_ms()
-    if ticks_diff(now, _last_dht_read) < 2000 and _last_dht_read > 0:
-        return _last_dht_humidity if _last_dht_humidity else None
+    cached = _dht_cache.get(gpio)
+    if cached and ticks_diff(now, cached["ts"]) < 2000:
+        return cached
 
-    sensor = _dht_sensors.get(sid)
+    sensor = _dht_sensors.get(gpio)
     if not sensor:
         return None
 
     try:
         sensor.measure()
-        h = sensor.humidity()
-        _last_dht_humidity = h
-        _last_dht_read = now
-        return h
+        reading = {"t": sensor.temperature(), "h": sensor.humidity(), "ts": now}
+        _dht_cache[gpio] = reading
+        return reading
     except Exception as e:
-        print("DHT11 '{}' error: {} → fallo".format(sid, e))
-        # No devolver un valor viejo como si fuera real: señalar fallo
-        _last_dht_humidity = 0.0
+        print("DHT11 en GPIO{} error: {} → fallo".format(gpio, e))
+        # No devolver una lectura vieja como si fuera real: señalar fallo
+        _dht_cache.pop(gpio, None)
         return None
+
+
+def _read_dht_field(gpio, sensor_type):
+    """Retorna el campo pedido ('t' o 'h') de la lectura combinada del DHT11."""
+    reading = _read_dht_combined(gpio)
+    if reading is None:
+        return None
+    return reading["h"] if sensor_type == "humidity_dht11" else reading["t"]
